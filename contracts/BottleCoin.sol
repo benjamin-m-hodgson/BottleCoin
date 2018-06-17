@@ -20,12 +20,17 @@ contract owned {
 
 contract BottleCoin is owned{
 
+  // Mapping to store active bottles
+  mapping(bytes32 => uint) public activeBottleIndex;
+  Bottle[] activeBottles;
+
   // Authorized roles
-  mapping(address => bool) public manufacturer;
-  mapping(address => bool) public retailer;
-  mapping(address => bool) public transporter;
-  mapping(address => bool) public recyclingFacility;
-  mapping(address => bool) public vendor;
+  mapping(address => uint) public manufacturer;
+  mapping(address => uint) public retailer;
+  mapping(address => uint) public transporter;
+  mapping(address => uint) public recyclingFacility;
+  mapping(address => uint) public vendor;
+  Actor[] public authorizedActors;
 
   enum BottleType {
     waterBottle,
@@ -33,18 +38,110 @@ contract BottleCoin is owned{
     other
   }
 
+  enum BottleStatus {
+    created,
+    withManufacturer,
+    withRetailer,
+    withConsumer,
+    withVendor,
+    withRecyclingFacility
+  }
+
+  enum Role {
+    manufacturer,
+    retailer,
+    consumer,
+    recycler,
+    transporter,
+    recyclingFacility,
+    vendor
+  }
+
   struct Bottle {
+    bytes32 id;
     BottleType bottleType;
-    address id;
+    uint manufacturerPrice;
+    BottleStatus bottleStatus;
     uint rewardDeposit;
+    address currentOwner;
+    Actor[] rewardedActors;
+  }
+
+  struct ActorRole {
+    Role contribution;
+    uint rewardAmount;
   }
 
   struct Actor {
     address id;
+    string name;
+    ActorRole role;
+  }
+
+  // Modifier that allows only manufacturers to transact
+  modifier onlyManufacturers {
+      require(manufacturer[msg.sender] != 0 || msg.sender == owner);
+      _;
+  }
+
+  // Modifier that allows only retailers to transact
+  modifier onlyRetailers {
+      require(retailer[msg.sender] != 0 || msg.sender == owner);
+      _;
+  }
+
+  // Modifier that allows only transporters to transact
+  modifier onlyTransporters {
+      require(transporter[msg.sender] != 0 || msg.sender == owner);
+      _;
+  }
+
+  // Modifier that allows only recycling facilities to transact
+  modifier onlyRecyclingFacilities {
+      require(recyclingFacility[msg.sender] != 0 || msg.sender == owner);
+      _;
+  }
+
+  // Modifier that allows only vendors to transact
+  modifier onlyVendors {
+      require(vendor[msg.sender] != 0 || msg.sender == owner);
+      _;
   }
 
   constructor() public {
 
+  }
+
+  function createBottle(BottleType _type, uint _price) onlyOwner public {
+    bytes32 bottleHash = calculateBottleHash();
+    // Check existence of bottle
+    uint index = activeBottleIndex[bottleHash];
+    if (index == 0) {
+        // Add active bottle to ID list.
+        activeBottleIndex[bottleHash] = activeBottles.length;
+        index = activeBottles.length++;
+
+        // Create and update storage
+        Bottle storage b = activeBottles[index];
+        b.id = bottleHash;
+        b.bottleType = _type;
+        b.manufacturerPrice = _price;
+        b.bottleStatus = BottleStatus.created;
+        b.rewardDeposit = 0;
+        b.currentOwner = address(this);
+    }
+  }
+
+ /**
+  * Returns the unique identifying bottle hash
+  */
+  function scanBottle() pure public returns(bytes32) {
+    // TODO implement logic to return bottle hash
+  }
+
+  // calculates the unique bottle hash for a new bottle
+  function calculateBottleHash() view private returns(bytes32) {
+    return keccak256(abi.encodePacked(now, activeBottles.length));
   }
 
 }
