@@ -13,13 +13,22 @@ contract owned {
         _;
     }
 
-    function transferOwnership(address newOwner) onlyOwner public {
-        owner = newOwner;
+    function transferOwnership(address _newOwner) onlyOwner public {
+        owner = _newOwner;
     }
 }
 
 contract BottleCoin is owned {
   using SafeMath for uint;
+
+  // Constants to define reward sharing and contract functionality
+  uint private manufacturerShare = 0;
+  uint private retailerShare = 0;
+  uint private consumerShare = uint(2).div(uint(14));
+  uint private recyclerShare = uint(5).div(uint(14));
+  uint private transporterShare = uint(1).div(uint(14));
+  uint private recyclingFacilityShare = uint(3).div(uint(14));
+  uint private vendorShare = uint(2).div(uint(14));
 
   // Mapping to store active bottles
   mapping(bytes32 => uint) public activeBottleIndex;
@@ -70,7 +79,7 @@ contract BottleCoin is owned {
 
   struct ActorRole {
     Role contribution;
-    uint rewardAmount;
+    uint rewardShare;
   }
 
   struct Actor {
@@ -113,6 +122,12 @@ contract BottleCoin is owned {
 
   }
 
+  /**
+   * Allows only the contract owner to create a new active bottle
+   *
+   * @param _type the type of bottle created as specified by the enum BottleType
+   * @param _price the minimum price manufacturers can pay for the bottle
+   */
   function createBottle(BottleType _type, uint _price) onlyOwner public {
     bytes32 bottleHash = calculateBottleHash();
     // Check existence of bottle
@@ -133,11 +148,77 @@ contract BottleCoin is owned {
     }
   }
 
+  /**
+   * Returns the minimum sale price for this bottle for manufacturers
+   *
+   * @notice only can be called by authorized manufacturers
+   *
+   * @param _bottleHash the hash that uniquely identifies this botle
+   */
+  function getManufacturersPrice(
+    bytes32 _bottleHash
+  ) onlyManufacturers view public returns(uint) {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    return thisBottle.manufacturerPrice;
+  }
+
+  /**
+   * Allows a bottle to be sold to authorized manufacturers. Requires the transaction
+   * price is greater than the minimum price the bottle can be sold to manufacturers.
+   *
+   * @notice only can be called by authorized manufacturers
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   * @param _manufacturerName the name of the manufacturer purchasing the bottle
+   */
+  function sellBottleToManufacturer(
+    bytes32 _bottleHash,
+    string _manufacturerName
+  ) onlyManufacturers payable public {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    // require the bottle hasn't been sold before
+    if (thisBottle.bottleStatus != BottleStatus.created) {
+      revert("This bottle has already been sold to a manufacturer!");
+    }
+    // require the price is sufficient
+    require(msg.value >= thisBottle.manufacturerPrice, "Insufficient funds");
+    // update bottle data
+    thisBottle.bottleStatus = BottleStatus.withManufacturer;
+    ActorRole memory manufacturerRole = ActorRole({
+      contribution: Role.manufacturer,
+      rewardShare: manufacturerShare
+    });
+    addRewardedActor(_bottleHash, msg.sender, _manufacturerName, manufacturerRole);
+  }
+
  /**
   * Returns the unique identifying bottle hash scanned from a bottle
   */
   function scanBottle() pure public returns(bytes32) {
     // TODO implement logic to return bottle hash
+  }
+
+  /**
+   * Adds an actor with the specified parameters to the array of actors to be rewarded
+   * for the recycling of a bottle identified by the bottle hash
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   * @param _actorId the address identifying the actor to be rewarded
+   * @param _actorName the string name that helps identify the actor further
+   * @param _role the role the actor played in the bottle's life cycle
+   */
+  function addRewardedActor(
+    bytes32 _bottleHash,
+    address _actorId,
+    string _actorName,
+    ActorRole _role
+  ) private {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    thisBottle.rewardedActors.push(Actor({
+      id: _actorId,
+      name: _actorName,
+      role: _role
+    }));
   }
 
   // calculates the unique bottle hash for a new bottle
