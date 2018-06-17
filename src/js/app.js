@@ -1,64 +1,53 @@
 App = {
   web3Provider: null,
   contracts: {},
+  account: '0x0',
 
   init: function() {
-    // Load pets.
-    $.getJSON('../pets.json', function(data) {
-      var petsRow = $('#petsRow');
-      var petTemplate = $('#petTemplate');
-
-      for (i = 0; i < data.length; i ++) {
-        petTemplate.find('.panel-title').text(data[i].name);
-        petTemplate.find('img').attr('src', data[i].picture);
-        petTemplate.find('.pet-breed').text(data[i].breed);
-        petTemplate.find('.pet-age').text(data[i].age);
-        petTemplate.find('.pet-location').text(data[i].location);
-        petTemplate.find('.btn-adopt').attr('data-id', data[i].id);
-
-        petsRow.append(petTemplate.html());
-      }
-    });
-
     return App.initWeb3();
   },
 
   initWeb3: function() {
-    /*
-     * Replace me...
-     */
-
+    if (typeof web3 !== 'undefined') {
+      // If a web3 instance is already provided by Meta Mask
+      App.web3Provider = web3.currentProvider;
+      web3 = new Web3(web3.currentProvider);
+    }
+    else {
+      // Specify default if no web3 instance provided
+      App.web3Provider = new Web3.providers.HttpProvider('http://localhost:7545');
+      web3 = new Web3(App.web3Provider);
+    }
     return App.initContract();
   },
 
   initContract: function() {
-    /*
-     * Replace me...
-     */
+    $.getJSON("BottleCoin.json", function(bottlecoin) {
+      // Instantiate a new truffle contract from the artifact
+      App.contracts.BottleCoin = TruffleContract(bottlecoin);
+      // Connect provider to interact with contract
+      App.contracts.BottleCoin.setProvider(App.web3Provider);
 
-    return App.bindEvents();
+      return App.render();
+    });
   },
 
-  bindEvents: function() {
-    $(document).on('click', '.btn-adopt', App.handleAdopt);
-  },
+  render: function() {
+    var bottleCoinInstance;
+    var loader = $("#loader");
+    var content = $("#content");
 
-  markAdopted: function(adopters, account) {
-    /*
-     * Replace me...
-     */
-  },
+    loader.show();
+    content.hide();
 
-  handleAdopt: function(event) {
-    event.preventDefault();
-
-    var petId = parseInt($(event.target).data('id'));
-
-    /*
-     * Replace me...
-     */
+    // TODO Load contract data
+    App.contracts.BottleCoin.deployed().then(function(instance) {
+      bottleCoinInstance = instance;
+    });
   }
 
+  loader.hide();
+  content.show();
 };
 
 $(function() {
