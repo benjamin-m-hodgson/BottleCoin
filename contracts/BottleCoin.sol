@@ -35,12 +35,11 @@ contract BottleCoin is owned {
   Bottle[] activeBottles;
 
   // Authorized roles
-  mapping(address => uint) public manufacturer;
-  mapping(address => uint) public retailer;
-  mapping(address => uint) public transporter;
-  mapping(address => uint) public recyclingFacility;
-  mapping(address => uint) public vendor;
-  Actor[] public authorizedActors;
+  mapping(address => bool) public manufacturer;
+  mapping(address => bool) public retailer;
+  mapping(address => bool) public transporter;
+  mapping(address => bool) public recyclingFacility;
+  mapping(address => bool) public vendor;
 
   enum BottleType {
     waterBottle,
@@ -90,36 +89,56 @@ contract BottleCoin is owned {
 
   // Modifier that allows only manufacturers to transact
   modifier onlyManufacturers {
-      require(manufacturer[msg.sender] != 0 || msg.sender == owner);
+      require(manufacturer[msg.sender] || msg.sender == owner);
       _;
   }
 
   // Modifier that allows only retailers to transact
   modifier onlyRetailers {
-      require(retailer[msg.sender] != 0 || msg.sender == owner);
+      require(retailer[msg.sender] || msg.sender == owner);
       _;
   }
 
   // Modifier that allows only transporters to transact
   modifier onlyTransporters {
-      require(transporter[msg.sender] != 0 || msg.sender == owner);
+      require(transporter[msg.sender] || msg.sender == owner);
       _;
   }
 
   // Modifier that allows only recycling facilities to transact
   modifier onlyRecyclingFacilities {
-      require(recyclingFacility[msg.sender] != 0 || msg.sender == owner);
+      require(recyclingFacility[msg.sender] || msg.sender == owner);
       _;
   }
 
   // Modifier that allows only vendors to transact
   modifier onlyVendors {
-      require(vendor[msg.sender] != 0 || msg.sender == owner);
+      require(vendor[msg.sender] || msg.sender == owner);
       _;
   }
 
   constructor() public {
 
+  }
+
+  /**
+   * Designates an address as an authorized actor for a specific role
+   *
+   * @param _actor the address whose authorized status is changing
+   * @param _role the role the authorized status pertains to
+   */
+  function addAuthorizedActor(address _actor, Role _role) onlyOwner public {
+    toggleAuthorizedActor(_actor, _role, true);
+  }
+
+  /**
+   * Designates an address as an unauthorized actor for a specific role
+   *
+   * @param _actor the address whose authorized status is changing
+   * @param _role the role the authorized status pertains to
+   */
+  function removeAuthorizedActor(address _actor, Role _role) onlyOwner public {
+    toggleAuthorizedActor(_actor, _role, false);
   }
 
   /**
@@ -219,6 +238,38 @@ contract BottleCoin is owned {
       name: _actorName,
       role: _role
     }));
+  }
+
+  /**
+   * Designates an address as an authorized or unauthorized actor for a specific role
+   *
+   * @param _actor the address whose authorized status is changing
+   * @param _role the role the authorized status pertains to
+   * @param _value the value of the authorized status, true is authoried
+   */
+  function toggleAuthorizedActor(
+    address _actor,
+    Role _role,
+    bool _value
+  ) private {
+    if (_role == Role.manufacturer) {
+      manufacturer[_actor] = _value;
+    }
+    else if (_role == Role.retailer) {
+      retailer[_actor] = _value;
+    }
+    else if (_role == Role.transporter) {
+      transporter[_actor] = _value;
+    }
+    else if (_role == Role.recyclingFacility) {
+      recyclingFacility[_actor] = _value;
+    }
+    else if (_role == Role.vendor) {
+      vendor[_actor] = _value;
+    }
+    else {
+      revert("Invalid authorized role provided");
+    }
   }
 
   // calculates the unique bottle hash for a new bottle
