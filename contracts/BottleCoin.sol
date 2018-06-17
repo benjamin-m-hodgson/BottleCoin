@@ -133,7 +133,7 @@ contract BottleCoin is owned{
   }
 
  /**
-  * Returns the unique identifying bottle hash
+  * Returns the unique identifying bottle hash scanned from a bottle
   */
   function scanBottle() pure public returns(bytes32) {
     // TODO implement logic to return bottle hash
@@ -142,6 +142,21 @@ contract BottleCoin is owned{
   // calculates the unique bottle hash for a new bottle
   function calculateBottleHash() view private returns(bytes32) {
     return keccak256(abi.encodePacked(now, activeBottles.length));
+  }
+
+  // fallback payable function
+  function() payable public {
+
+  }
+
+  // getter that returns the contract ether balance
+  function getEtherBalance() onlyOwner view public returns (uint) {
+      return address(this).balance;
+  }
+
+  // delete the contract from the blockchain
+  function kill() onlyOwner public{
+      selfdestruct(owner);
   }
 
 }
