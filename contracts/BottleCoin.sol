@@ -85,16 +85,43 @@ contract BottleToken is ERC20Interface, Owned {
   string public name;
   uint8 public decimals;
   uint private _totalSupply;
+  address private mintController;
 
   mapping(address => uint) private balances;
   mapping(address => mapping(address => uint)) private allowed;
 
-  constructor() public {
+  modifier onlyMintController {
+        require(msg.sender == mintController);
+        _;
+    }
+
+  event Mint(address receivingAddress, uint amount);
+
+  constructor(address tokenMintController) public {
     name = "BottleCoin";
     decimals = 18;
+    mintController = tokenMintController;
     // TODO set _totalSupply value here
     balances[owner] = _totalSupply;
     emit Transfer(address(0), owner, _totalSupply);
+  }
+
+  // ------------------------------------------------------------------------
+  // Allows only the 'mintController' to add 'amount' of tokens to
+  // 'actor' account balance. Returns true if mint is successful, false otherwise
+  // ------------------------------------------------------------------------
+  function mint(address actor,uint amount) onlyMintController public returns (bool){
+      uint startBalance = balances[actor];
+      balances[actor] = balances[actor].add(amount);
+      emit Mint(actor, amount);
+      return balances[actor] > startBalance;
+  }
+
+  // ------------------------------------------------------------------------
+  // Allows only the owner to designate 'newMinter' as the 'mintController'
+  // ------------------------------------------------------------------------
+  function changeMinter(address newMinter) onlyOwner public {
+      mintController = newMinter;
   }
 
   // ------------------------------------------------------------------------
