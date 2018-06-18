@@ -1,8 +1,46 @@
 pragma solidity ^0.4.8;
 
+/**
+ * @title SafeMath
+ * @dev Math operations with safety checks that throw on error
+ */
+library SafeMath {
+
+  function mul(uint256 a, uint256 b) internal pure returns (uint256) {
+    if (a == 0) {
+      return 0;
+    }
+    uint256 c = a * b;
+    assert(c / a == b);
+    return c;
+  }
+
+  function div(uint256 a, uint256 b) internal pure returns (uint256) {
+    // assert(b > 0); // Solidity automatically throws when dividing by 0
+    uint256 c = a / b;
+    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
+    return c;
+  }
+
+  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
+    assert(b <= a);
+    return a - b;
+  }
+
+  function add(uint256 a, uint256 b) internal pure returns (uint256) {
+    uint256 c = a + b;
+    assert(c >= a);
+    return c;
+  }
+
+}
+
 // Utility contract for ownership functionality.
-contract owned {
+contract Owned {
     address public owner;
+    address public newOwner;
+
+    event OwnershipTransferred(address indexed _from, address indexed _to);
 
     constructor() public {
         owner = msg.sender;
@@ -14,11 +52,111 @@ contract owned {
     }
 
     function transferOwnership(address _newOwner) onlyOwner public {
-        owner = _newOwner;
+        newOwner = _newOwner;
+    }
+
+    function acceptOwnership() public {
+        require(msg.sender == newOwner);
+        emit OwnershipTransferred(owner, newOwner);
+        owner = newOwner;
+        newOwner = address(0);
     }
 }
 
-contract BottleCoin is owned {
+// ----------------------------------------------------------------------------
+// ERC Token Standard #20 Interface
+// https://github.com/ethereum/EIPs/blob/master/EIPS/eip-20-token-standard.md
+// ----------------------------------------------------------------------------
+contract ERC20Interface {
+    function totalSupply() public constant returns (uint);
+    function balanceOf(address tokenOwner) public constant returns (uint balance);
+    function allowance(address tokenOwner, address spender) public constant returns (uint remaining);
+    function transfer(address to, uint tokens) public returns (bool success);
+    function approve(address spender, uint tokens) public returns (bool success);
+    function transferFrom(address from, address to, uint tokens) public returns (bool success);
+
+    event Transfer(address indexed from, address indexed to, uint tokens);
+    event Approval(address indexed tokenOwner, address indexed spender, uint tokens);
+}
+
+contract BottleToken is ERC20Interface, Owned {
+  using SafeMath for uint;
+
+  string public name;
+  uint8 public decimals;
+  uint private _totalSupply;
+
+  mapping(address => uint) private balances;
+  mapping(address => mapping(address => uint)) private allowed;
+
+  constructor() public {
+    name = "BottleCoin";
+    decimals = 18;
+    // TODO set _totalSupply value here
+    balances[owner] = _totalSupply;
+    emit Transfer(address(0), owner, _totalSupply);
+  }
+
+  // ------------------------------------------------------------------------
+  // Total supply
+  // ------------------------------------------------------------------------
+  function totalSupply() public view returns (uint) {
+      return _totalSupply.sub(balances[address(0)]);
+  }
+
+  // ------------------------------------------------------------------------
+  // Get the token balance for account `tokenOwner`
+  // ------------------------------------------------------------------------
+  function balanceOf(address tokenOwner) public view returns (uint balance) {
+      return balances[tokenOwner];
+  }
+
+  // ------------------------------------------------------------------------
+  // Transfer the balance from token owner's account to `to` account
+  // - Owner's account must have sufficient balance to transfer
+  // - 0 value transfers are allowed
+  // ------------------------------------------------------------------------
+  function transfer(address to, uint tokens) public returns (bool success) {
+      balances[msg.sender] = balances[msg.sender].sub(tokens);
+      balances[to] = balances[to].add(tokens);
+      emit Transfer(msg.sender, to, tokens);
+      return true;
+  }
+
+  // ------------------------------------------------------------------------
+  // Token owner can approve for `spender` to transferFrom(...) `tokens`
+  // from the token owner's account
+  //
+  // https://github.com/ethereum/EIPs/blob/master/EIPS/eip-20-token-standard.md
+  // recommends that there are no checks for the approval double-spend attack
+  // as this should be implemented in user interfaces
+  // ------------------------------------------------------------------------
+  function approve(address spender, uint tokens) public returns (bool success) {
+      allowed[msg.sender][spender] = tokens;
+      emit Approval(msg.sender, spender, tokens);
+      return true;
+  }
+
+  // ------------------------------------------------------------------------
+  // Transfer `tokens` from the `from` account to the `to` account
+  //
+  // The calling account must already have sufficient tokens approve(...)-d
+  // for spending from the `from` account and
+  // - From account must have sufficient balance to transfer
+  // - Spender must have sufficient allowance to transfer
+  // - 0 value transfers are allowed
+  // ------------------------------------------------------------------------
+  function transferFrom(address from, address to, uint tokens) public returns (bool success) {
+      balances[from] = balances[from].sub(tokens);
+      allowed[from][msg.sender] = allowed[from][msg.sender].sub(tokens);
+      balances[to] = balances[to].add(tokens);
+      emit Transfer(from, to, tokens);
+      return true;
+  }
+
+}
+
+contract BottleCoin is BottleToken {
   using SafeMath for uint;
 
   // Constants to define reward sharing and contract functionality
@@ -31,8 +169,8 @@ contract BottleCoin is owned {
   uint private vendorShare = uint(2).div(uint(14));
 
   // Mapping to store active bottles
-  mapping(bytes32 => uint) public activeBottleIndex;
-  Bottle[] activeBottles;
+  mapping(bytes32 => uint) private activeBottleIndex;
+  Bottle[] private activeBottles;
 
   // Authorized roles
   mapping(address => bool) public manufacturer;
@@ -83,7 +221,6 @@ contract BottleCoin is owned {
 
   struct Actor {
     address id;
-    string name;
     ActorRole role;
   }
 
@@ -118,7 +255,6 @@ contract BottleCoin is owned {
   }
 
   constructor() public {
-
   }
 
   /**
@@ -188,27 +324,33 @@ contract BottleCoin is owned {
    * @notice only can be called by authorized manufacturers
    *
    * @param _bottleHash the unique identifying bottle hash scanned from a bottle
-   * @param _manufacturerName the name of the manufacturer purchasing the bottle
    */
   function sellBottleToManufacturer(
     bytes32 _bottleHash,
-    string _manufacturerName
-  ) onlyManufacturers payable public {
+    address _buyer
+  ) onlyOwner payable public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     // require the bottle hasn't been sold before
     if (thisBottle.bottleStatus != BottleStatus.created) {
       revert("This bottle has already been sold to a manufacturer!");
     }
+    // require the bottle is being sold to an authorized manufacturer
+    require(manufacturer[_buyer]);
     // require the price is sufficient
+    // TODO implement tokens
     require(msg.value >= thisBottle.manufacturerPrice, "Insufficient funds");
     // update bottle data
     thisBottle.bottleStatus = BottleStatus.withManufacturer;
+    // TODO implement tokens
+    thisBottle.rewardDeposit = msg.value;
     ActorRole memory manufacturerRole = ActorRole({
       contribution: Role.manufacturer,
       rewardShare: manufacturerShare
     });
-    addRewardedActor(_bottleHash, msg.sender, _manufacturerName, manufacturerRole);
+    addRewardedActor(_bottleHash, msg.sender, manufacturerRole);
   }
+
+
 
  /**
   * Returns the unique identifying bottle hash scanned from a bottle
@@ -223,19 +365,16 @@ contract BottleCoin is owned {
    *
    * @param _bottleHash the unique identifying bottle hash scanned from a bottle
    * @param _actorId the address identifying the actor to be rewarded
-   * @param _actorName the string name that helps identify the actor further
    * @param _role the role the actor played in the bottle's life cycle
    */
   function addRewardedActor(
     bytes32 _bottleHash,
     address _actorId,
-    string _actorName,
     ActorRole _role
   ) private {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     thisBottle.rewardedActors.push(Actor({
       id: _actorId,
-      name: _actorName,
       role: _role
     }));
   }
@@ -290,41 +429,6 @@ contract BottleCoin is owned {
   // delete the contract from the blockchain
   function kill() onlyOwner public{
       selfdestruct(owner);
-  }
-
-}
-
-/**
- * @title SafeMath
- * @dev Math operations with safety checks that throw on error
- */
-library SafeMath {
-
-  function mul(uint256 a, uint256 b) internal pure returns (uint256) {
-    if (a == 0) {
-      return 0;
-    }
-    uint256 c = a * b;
-    assert(c / a == b);
-    return c;
-  }
-
-  function div(uint256 a, uint256 b) internal pure returns (uint256) {
-    // assert(b > 0); // Solidity automatically throws when dividing by 0
-    uint256 c = a / b;
-    // assert(a == b * c + a % b); // There is no case in which this doesn't hold
-    return c;
-  }
-
-  function sub(uint256 a, uint256 b) internal pure returns (uint256) {
-    assert(b <= a);
-    return a - b;
-  }
-
-  function add(uint256 a, uint256 b) internal pure returns (uint256) {
-    uint256 c = a + b;
-    assert(c >= a);
-    return c;
   }
 
 }
