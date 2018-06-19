@@ -50,7 +50,6 @@ contract Ownable {
     address indexed newOwner
   );
 
-
   /**
    * @dev The Ownable constructor sets the original `owner` of the contract to the sender
    * account.
@@ -95,6 +94,7 @@ contract Ownable {
     emit OwnershipTransferred(owner, _newOwner);
     owner = _newOwner;
   }
+
 }
 
 // ----------------------------------------------------------------------------
@@ -112,6 +112,7 @@ contract ERC20Interface {
 
     event Transfer(address indexed owner, address indexed spender, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
+
 }
 
 /**
@@ -284,11 +285,6 @@ contract MintableToken is StandardToken, Ownable {
     _;
   }
 
-  modifier hasMintPermission() {
-    require(msg.sender == owner);
-    _;
-  }
-
   /**
    * @dev Function to mint tokens
    * @param _to The address that will receive the minted tokens.
@@ -299,9 +295,29 @@ contract MintableToken is StandardToken, Ownable {
     address _to,
     uint256 _amount
   )
-    hasMintPermission
+    onlyOwner
     canMint
     public
+    returns (bool)
+  {
+    return internalMint(_to, _amount);
+  }
+
+  /**
+   * @dev Function to mint tokens
+   *
+   * @notice modified to be used for minting calls within derived contracts
+   *
+   * @param _to The address that will receive the minted tokens.
+   * @param _amount The amount of tokens to mint.
+   * @return A boolean that indicates if the operation was successful.
+   */
+  function internalMint(
+    address _to,
+    uint256 _amount
+  )
+    canMint
+    internal
     returns (bool)
   {
     totalSupply_ = totalSupply_.add(_amount);
@@ -320,6 +336,7 @@ contract MintableToken is StandardToken, Ownable {
     emit MintFinished();
     return true;
   }
+
 }
 
 contract BottleToken is MintableToken {
@@ -343,24 +360,30 @@ contract BottleToken is MintableToken {
 contract BottleCoin is BottleToken {
   using SafeMath for uint;
 
-  // Constants to define reward sharing and contract functionality
-  uint private manufacturerShare = 0;
-  uint private retailerShare = 0;
-  uint private consumerShare = uint(2).div(uint(14));
-  uint private recyclerShare = uint(5).div(uint(14));
-  uint private transporterShare = uint(1).div(uint(14));
-  uint private recyclingFacilityShare = uint(3).div(uint(14));
-  uint private vendorShare = uint(2).div(uint(14));
+  // Constants to define reward sharing
+  uint manufacturerShare = 0;
+  uint retailerShare = 0;
+  uint consumerShare = uint(2).div(uint(14));
+  uint recyclerShare = uint(5).div(uint(14));
+  uint transporterShare = uint(1).div(uint(14));
+  uint recyclingFacilityShare = uint(3).div(uint(14));
+  uint vendorShare = uint(2).div(uint(14));
+
+  // Share taken from consumer purchase
+  uint saleShare = uint(27).div(uint(100));
+
+  // Token exchange rate
+  uint public weiPerToken;
 
   // Mapping to store active bottles
-  mapping(bytes32 => uint) private activeBottleIndex;
-  Bottle[] private activeBottles;
+  mapping(bytes32 => uint) activeBottleIndex;
+  Bottle[] activeBottles;
 
   // Authorized roles
   mapping(address => bool) public manufacturer;
   mapping(address => bool) public retailer;
-  mapping(address => bool) public transporter;
   mapping(address => bool) public recyclingFacility;
+  mapping(address => bool) public transporter;
   mapping(address => bool) public vendor;
 
   enum BottleType {
@@ -391,9 +414,10 @@ contract BottleCoin is BottleToken {
   struct Bottle {
     bytes32 id;
     BottleType bottleType;
-    uint manufacturerPrice;
+    uint manufacturerWeiPrice;
     BottleStatus bottleStatus;
     uint rewardDeposit;
+    uint saleTime;
     address currentOwner;
     Actor[] rewardedActors;
   }
@@ -420,12 +444,6 @@ contract BottleCoin is BottleToken {
       _;
   }
 
-  // Modifier that allows only transporters to transact
-  modifier onlyTransporters {
-      require(transporter[msg.sender] || msg.sender == owner);
-      _;
-  }
-
   // Modifier that allows only recycling facilities to transact
   modifier onlyRecyclingFacilities {
       require(recyclingFacility[msg.sender] || msg.sender == owner);
@@ -438,7 +456,8 @@ contract BottleCoin is BottleToken {
       _;
   }
 
-  constructor() public {
+  constructor(uint _price) public {
+    weiPerToken = _price;
   }
 
   /**
@@ -471,20 +490,31 @@ contract BottleCoin is BottleToken {
     bytes32 bottleHash = calculateBottleHash();
     // Check existence of bottle
     uint index = activeBottleIndex[bottleHash];
-    if (index == 0) {
-      // Add active bottle to ID list.
-      activeBottleIndex[bottleHash] = activeBottles.length;
-      index = activeBottles.length++;
+    require(index == 0, "Bottle already created with generated hash");
 
-      // Create and update storage
-      Bottle storage b = activeBottles[index];
-      b.id = bottleHash;
-      b.bottleType = _type;
-      b.manufacturerPrice = _price;
-      b.bottleStatus = BottleStatus.created;
-      b.rewardDeposit = 0;
-      b.currentOwner = address(this);
-    }
+    // Add active bottle to ID list.
+    activeBottleIndex[bottleHash] = activeBottles.length;
+    index = activeBottles.length++;
+
+    // Create and update storage
+    Bottle storage b = activeBottles[index];
+    b.id = bottleHash;
+    b.bottleType = _type;
+    b.manufacturerWeiPrice = _price;
+    b.bottleStatus = BottleStatus.created;
+    b.rewardDeposit = 0;
+    b.saleTime = 0;
+    b.currentOwner = address(this);
+  }
+
+  /**
+   * Allows only the contract owner to return the bottle hash for a bottle at
+   * the specified index in the active bottles array
+   *
+   * @param _index the index of the bottle whose hash should be returned
+   */
+  function getBottleHash(uint _index) onlyOwner view public returns (bytes32) {
+    return activeBottles[_index].id;
   }
 
   /**
@@ -498,7 +528,7 @@ contract BottleCoin is BottleToken {
     bytes32 _bottleHash
   ) onlyManufacturers view public returns(uint) {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
-    return thisBottle.manufacturerPrice;
+    return thisBottle.manufacturerWeiPrice;
   }
 
   /**
@@ -509,24 +539,23 @@ contract BottleCoin is BottleToken {
    *
    * @param _bottleHash the unique identifying bottle hash scanned from a bottle
    */
-  function sellBottleToManufacturer(
-    bytes32 _bottleHash,
-    address _buyer
-  ) onlyOwner payable public {
+  function purchaseBottle(
+    bytes32 _bottleHash
+  ) onlyManufacturers payable public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     // require the bottle hasn't been sold before
     if (thisBottle.bottleStatus != BottleStatus.created) {
       revert("This bottle has already been sold to a manufacturer!");
     }
-    // require the bottle is being sold to an authorized manufacturer
-    require(manufacturer[_buyer]);
     // require the price is sufficient
-    // TODO implement tokens
-    require(msg.value >= thisBottle.manufacturerPrice, "Insufficient funds");
-    // update bottle data
+    require(msg.value >= thisBottle.manufacturerWeiPrice, "Insufficient funds");
+
+    // update bottle data and mint tokens
     thisBottle.bottleStatus = BottleStatus.withManufacturer;
-    // TODO implement tokens
-    thisBottle.rewardDeposit = msg.value;
+    thisBottle.currentOwner = msg.sender;
+    uint tokens = weiToTokenConverter(msg.value);
+    thisBottle.rewardDeposit = thisBottle.rewardDeposit.add(tokens);
+    internalMint(address(this), tokens);
     ActorRole memory manufacturerRole = ActorRole({
       contribution: Role.manufacturer,
       rewardShare: manufacturerShare
@@ -534,13 +563,143 @@ contract BottleCoin is BottleToken {
     addRewardedActor(_bottleHash, msg.sender, manufacturerRole);
   }
 
+  // TODO comments
+  function stockBottle(bytes32 _bottleHash) onlyRetailers public {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    // require the bottle has been sold to a manufacturer
+    if (thisBottle.bottleStatus != BottleStatus.withManufacturer) {
+      revert("This bottle can't be stocked!");
+    }
 
+    // update bottle data
+    thisBottle.bottleStatus = BottleStatus.withRetailer;
+    thisBottle.currentOwner = msg.sender;
+    ActorRole memory retailerRole = ActorRole({
+      contribution: Role.retailer,
+      rewardShare: retailerShare
+    });
+    addRewardedActor(_bottleHash, msg.sender, retailerRole);
+  }
+
+  // TODO comments
+  function sellBottle(
+    bytes32 _bottleHash,
+    address _buyer
+  ) onlyRetailers payable public {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    // require the bottle has been stocked by a retailer
+    if (thisBottle.bottleStatus != BottleStatus.withRetailer) {
+      revert("This bottle can't be stocked!");
+    }
+    // TODO implement mandatory sale minimum?
+    // Need to ensure the _buyer is actually the one purchasing the bottle
+    // require(bottle price > $1.00) ?
+
+    // update bottle data
+    thisBottle.bottleStatus = BottleStatus.withConsumer;
+    thisBottle.currentOwner = _buyer;
+    thisBottle.saleTime = now;
+    uint tokens = weiToTokenConverter(msg.value.mul(saleShare));
+    thisBottle.rewardDeposit = thisBottle.rewardDeposit.add(tokens);
+    internalMint(address(this), tokens);
+    ActorRole memory consumerRole = ActorRole({
+      contribution: Role.consumer,
+      rewardShare: consumerShare
+    });
+    addRewardedActor(_bottleHash, _buyer, consumerRole);
+  }
+
+  // TODO comments
+  function claimBottle(bytes32 _bottleHash) public {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    // require the bottle has been purchased
+    if (thisBottle.bottleStatus != BottleStatus.withConsumer) {
+      revert("This bottle can't be claimed! It must be sold first");
+    }
+
+    // update ownership
+    thisBottle.currentOwner = msg.sender;
+  }
+
+  // TODO comments
+  function vend(bytes32 _bottleHash) onlyVendors public {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    // require the bottle has been purchased
+    if (thisBottle.bottleStatus != BottleStatus.withConsumer) {
+      revert("This bottle must be purchased before it can be recycled");
+    }
+
+    // update bottle data, don't update owner to reward the depositer later
+    thisBottle.bottleStatus = BottleStatus.withVendor;
+    ActorRole memory vendorRole = ActorRole({
+      contribution: Role.vendor,
+      rewardShare: vendorShare
+    });
+    addRewardedActor(_bottleHash, msg.sender, vendorRole);
+  }
+
+  // TODO comments
+  // TODO how does transporter confirm they transported??
+  function recycleBottle(
+    bytes32 _bottleHash,
+    address _transporter
+  ) onlyRecyclingFacilities public {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    // require the bottle has been purchased
+    if (thisBottle.bottleStatus != BottleStatus.withConsumer) {
+      revert("This bottle can't be claimed! It must be sold first");
+    }
+    // require the supplied _transporter is an authorized transporter
+    require(transporter[_transporter], "Unauthorized transporter");
+
+    // update bottle data
+    thisBottle.bottleStatus = BottleStatus.withRecyclingFacility;
+    ActorRole memory transporterRole = ActorRole({
+      contribution: Role.transporter,
+      rewardShare: transporterShare
+    });
+    ActorRole memory recyclerRole = ActorRole({
+      contribution: Role.recycler,
+      rewardShare: recyclerShare
+    });
+    ActorRole memory recyclingFacilityRole = ActorRole({
+      contribution: Role.recyclingFacility,
+      rewardShare: recyclingFacilityShare
+    });
+    addRewardedActor(_bottleHash, _transporter, transporterRole);
+    addRewardedActor(_bottleHash, thisBottle.currentOwner, recyclerRole);
+    addRewardedActor(_bottleHash, msg.sender, recyclingFacilityRole);
+    transferDeposit(thisBottle.id);
+  }
 
  /**
   * Returns the unique identifying bottle hash scanned from a bottle
   */
   function scanBottle() pure public returns(bytes32) {
     // TODO implement logic to return bottle hash
+  }
+
+  // TODO comments
+  function transferDeposit(bytes32 _bottleHash) private {
+    Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
+    if (thisBottle.bottleStatus != BottleStatus.withRecyclingFacility) {
+      revert("This bottle's deposits can't be distributed!");
+    }
+    for (uint i = 0; i < thisBottle.rewardedActors.length; i++) {
+      Actor storage thisActor = thisBottle.rewardedActors[i];
+      uint reward = thisBottle.rewardDeposit.mul(thisActor.role.rewardShare);
+      transfer(thisActor.id, reward);
+    }
+    thisBottle.rewardDeposit = 0;
+    // TODO remove bottle from active bottle list
+  }
+
+  /**
+   * Calculates the conversion for wei to tokens. Returns the amount of tokens
+   * equivalent to the given wei
+   */
+  function weiToTokenConverter(uint _wei) view private returns (uint) {
+    return _wei.div(weiPerToken);
   }
 
   /**
