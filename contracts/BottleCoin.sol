@@ -414,7 +414,8 @@ contract BottleCoin is BottleToken {
   struct Bottle {
     bytes32 id;
     BottleType bottleType;
-    uint manufacturerWeiPrice;
+    uint minManufacturerWeiPrice;
+    uint minConsumerWeiPrice;
     BottleStatus bottleStatus;
     uint rewardDeposit;
     uint saleTime;
@@ -484,9 +485,10 @@ contract BottleCoin is BottleToken {
    * Allows only the contract owner to create a new active bottle
    *
    * @param _type the type of bottle created as specified by the enum BottleType
-   * @param _price the minimum price manufacturers can pay for the bottle
+   * @param _manPrice the minimum price manufacturers can pay for the bottle
+   * @param _conPrice the minimum price consumers can pay for the bottle
    */
-  function createBottle(BottleType _type, uint _price) onlyOwner public {
+  function createBottle(BottleType _type, uint _manPrice, uint _conPrice) onlyOwner public {
     bytes32 bottleHash = calculateBottleHash();
     // Check existence of bottle
     uint index = activeBottleIndex[bottleHash];
@@ -500,7 +502,8 @@ contract BottleCoin is BottleToken {
     Bottle storage b = activeBottles[index];
     b.id = bottleHash;
     b.bottleType = _type;
-    b.manufacturerWeiPrice = _price;
+    b.minManufacturerWeiPrice = _manPrice;
+    b.minConsumerWeiPrice = _conPrice;
     b.bottleStatus = BottleStatus.created;
     b.rewardDeposit = 0;
     b.saleTime = 0;
@@ -528,7 +531,7 @@ contract BottleCoin is BottleToken {
     bytes32 _bottleHash
   ) onlyManufacturers view public returns(uint) {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
-    return thisBottle.manufacturerWeiPrice;
+    return thisBottle.minManufacturerWeiPrice;
   }
 
   /**
@@ -548,7 +551,7 @@ contract BottleCoin is BottleToken {
       revert("This bottle has already been sold to a manufacturer!");
     }
     // require the price is sufficient
-    require(msg.value >= thisBottle.manufacturerWeiPrice, "Insufficient funds");
+    require(msg.value >= thisBottle.minManufacturerWeiPrice, "Insufficient funds");
 
     // update bottle data and mint tokens
     thisBottle.bottleStatus = BottleStatus.withManufacturer;
@@ -563,7 +566,14 @@ contract BottleCoin is BottleToken {
     addRewardedActor(_bottleHash, msg.sender, manufacturerRole);
   }
 
-  // TODO comments
+  /**
+   * Allows a bottle to be stocked by a retailer. Bottle status must be
+   * with manufacturers.
+   *
+   * @notice only can be called by authorized retailers
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   */
   function stockBottle(bytes32 _bottleHash) onlyRetailers public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     // require the bottle has been sold to a manufacturer
@@ -581,7 +591,16 @@ contract BottleCoin is BottleToken {
     addRewardedActor(_bottleHash, msg.sender, retailerRole);
   }
 
-  // TODO comments
+  /**
+   * Allows a bottle to be sold by a retailer. Bottle status must be
+   * with retailers and the transaction value must be greater than
+   * the minimum consumer price set at bottle creation.
+   *
+   * @notice only can be called by authorized retailers
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   * @param _buyer the address of the person buying the bottle
+   */
   function sellBottle(
     bytes32 _bottleHash,
     address _buyer
@@ -591,9 +610,8 @@ contract BottleCoin is BottleToken {
     if (thisBottle.bottleStatus != BottleStatus.withRetailer) {
       revert("This bottle can't be stocked!");
     }
-    // TODO implement mandatory sale minimum?
-    // Need to ensure the _buyer is actually the one purchasing the bottle
-    // require(bottle price > $1.00) ?
+    // require mandatory sale minimum is reached
+    require(msg.value >= thisBottle.minConsumerWeiPrice, "Insufficient funds");
 
     // update bottle data
     thisBottle.bottleStatus = BottleStatus.withConsumer;
@@ -609,7 +627,13 @@ contract BottleCoin is BottleToken {
     addRewardedActor(_bottleHash, _buyer, consumerRole);
   }
 
-  // TODO comments
+  /**
+   * Allows a bottle to be claimed by any actor. Transfers current ownership of
+   * the bottle to the msg.sender
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   * @param _buyer the address of the person buying the bottle
+   */
   function claimBottle(bytes32 _bottleHash) public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     // require the bottle has been purchased
@@ -621,7 +645,15 @@ contract BottleCoin is BottleToken {
     thisBottle.currentOwner = msg.sender;
   }
 
-  // TODO comments
+  /**
+   * Allows a bottle to be vended by an authorized vending location. Adds the
+   * vending location to the rewarded actors list within the bottle
+   *
+   * @notice only can be called by authorized vendors
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   * @param _buyer the address of the person buying the bottle
+   */
   function vend(bytes32 _bottleHash) onlyVendors public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     // require the bottle has been purchased
@@ -638,8 +670,16 @@ contract BottleCoin is BottleToken {
     addRewardedActor(_bottleHash, msg.sender, vendorRole);
   }
 
-  // TODO comments
-  // TODO how does transporter confirm they transported??
+  /**
+   * Allows only authorized recycling facilities to mark a bottle as recycled.
+   * Once recycled rewards are issued to involved actors. An authorized
+   * transporter that transported the material must be given.
+   *
+   * @notice only can be called by authorized recycling facilities
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   * @param _transporter the address of the authorized transporter
+   */
   function recycleBottle(
     bytes32 _bottleHash,
     address _transporter
@@ -679,7 +719,12 @@ contract BottleCoin is BottleToken {
     // TODO implement logic to return bottle hash
   }
 
-  // TODO comments
+  /**
+   * Issues reward deposits for actors invovled in the process of recycling
+   * the bottle identified by the bottle hash.
+   *
+   * @param _bottleHash the unique identifying bottle hash scanned from a bottle
+   */
   function transferDeposit(bytes32 _bottleHash) private {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     if (thisBottle.bottleStatus != BottleStatus.withRecyclingFacility) {
