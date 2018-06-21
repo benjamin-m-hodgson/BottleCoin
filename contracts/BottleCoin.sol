@@ -170,11 +170,31 @@ contract StandardToken is ERC20Interface {
   */
   function transfer(address _to, uint256 _value) public returns (bool) {
     require(_to != address(0));
-    require(_value <= balances[msg.sender]);
+    require(_value <= balances[msg.sender], "Insufficient owner balance");
 
     balances[msg.sender] = balances[msg.sender].sub(_value);
     balances[_to] = balances[_to].add(_value);
     emit Transfer(msg.sender, _to, _value);
+    return true;
+  }
+
+  /**
+  * @dev Transfer token for a specified address from an internal contract call
+  * @param _to The address to transfer to.
+  * @param _from The address which you want to send tokens from
+  * @param _value The amount to be transferred.
+  */
+  function internalTransfer(
+    address _from,
+    address _to,
+    uint256 _value
+  ) internal returns (bool) {
+    require(_to != address(0));
+    require(_value <= balances[_from], "Insufficient _from balance");
+
+    balances[_from] = balances[_from].sub(_value);
+    balances[_to] = balances[_to].add(_value);
+    emit Transfer(_from, _to, _value);
     return true;
   }
 
@@ -363,14 +383,15 @@ contract BottleCoin is BottleToken {
   // Constants to define reward sharing
   uint manufacturerShare = 0;
   uint retailerShare = 0;
-  uint consumerShare = uint(2).div(uint(14));
-  uint recyclerShare = uint(5).div(uint(14));
-  uint transporterShare = uint(1).div(uint(14));
-  uint recyclingFacilityShare = uint(3).div(uint(14));
-  uint vendorShare = uint(2).div(uint(14));
+  uint consumerShare = 2;
+  uint recyclerShare = 5;
+  uint transporterShare = 1;
+  uint recyclingFacilityShare = 3;
+  uint vendorShare = 2;
+  uint totalRewardShare = 14;
 
   // Share taken from consumer purchase
-  uint saleShare = uint(27).div(uint(100));
+  uint saleShare = 27;
 
   // Token exchange rate
   uint public weiPerToken;
@@ -380,11 +401,11 @@ contract BottleCoin is BottleToken {
   Bottle[] activeBottles;
 
   // Authorized roles
-  mapping(address => bool) public manufacturer;
-  mapping(address => bool) public retailer;
-  mapping(address => bool) public recyclingFacility;
-  mapping(address => bool) public transporter;
-  mapping(address => bool) public vendor;
+  mapping(address => bool) manufacturer;
+  mapping(address => bool) retailer;
+  mapping(address => bool) recyclingFacility;
+  mapping(address => bool) transporter;
+  mapping(address => bool) vendor;
 
   enum BottleType {
     waterBottle,
@@ -556,6 +577,10 @@ contract BottleCoin is BottleToken {
     // update bottle data and mint tokens
     thisBottle.bottleStatus = BottleStatus.withManufacturer;
     thisBottle.currentOwner = msg.sender;
+
+    // TODO refund excess ether sent, msg.value - thisBottle.minManufacturerWeiPrice
+
+    // mint tokens
     uint tokens = weiToTokenConverter(msg.value);
     thisBottle.rewardDeposit = thisBottle.rewardDeposit.add(tokens);
     internalMint(address(this), tokens);
@@ -617,7 +642,7 @@ contract BottleCoin is BottleToken {
     thisBottle.bottleStatus = BottleStatus.withConsumer;
     thisBottle.currentOwner = _buyer;
     thisBottle.saleTime = now;
-    uint tokens = weiToTokenConverter(msg.value.mul(saleShare));
+    uint tokens = weiToTokenConverter(msg.value.mul(saleShare).div(100));
     thisBottle.rewardDeposit = thisBottle.rewardDeposit.add(tokens);
     internalMint(address(this), tokens);
     ActorRole memory consumerRole = ActorRole({
@@ -632,7 +657,6 @@ contract BottleCoin is BottleToken {
    * the bottle to the msg.sender
    *
    * @param _bottleHash the unique identifying bottle hash scanned from a bottle
-   * @param _buyer the address of the person buying the bottle
    */
   function claimBottle(bytes32 _bottleHash) public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
@@ -652,7 +676,6 @@ contract BottleCoin is BottleToken {
    * @notice only can be called by authorized vendors
    *
    * @param _bottleHash the unique identifying bottle hash scanned from a bottle
-   * @param _buyer the address of the person buying the bottle
    */
   function vend(bytes32 _bottleHash) onlyVendors public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
@@ -686,7 +709,8 @@ contract BottleCoin is BottleToken {
   ) onlyRecyclingFacilities public {
     Bottle storage thisBottle = activeBottles[activeBottleIndex[_bottleHash]];
     // require the bottle has been purchased
-    if (thisBottle.bottleStatus != BottleStatus.withConsumer) {
+    if (thisBottle.bottleStatus != BottleStatus.withConsumer
+            && thisBottle.bottleStatus != BottleStatus.withVendor) {
       revert("This bottle can't be claimed! It must be sold first");
     }
     // require the supplied _transporter is an authorized transporter
@@ -732,8 +756,11 @@ contract BottleCoin is BottleToken {
     }
     for (uint i = 0; i < thisBottle.rewardedActors.length; i++) {
       Actor storage thisActor = thisBottle.rewardedActors[i];
-      uint reward = thisBottle.rewardDeposit.mul(thisActor.role.rewardShare);
-      transfer(thisActor.id, reward);
+      uint reward = thisBottle.rewardDeposit.mul(thisActor.role.rewardShare)
+                          .div(totalRewardShare);
+      if (reward > 0) {
+        internalTransfer(address(this), thisActor.id, reward);
+      }
     }
     thisBottle.rewardDeposit = 0;
     // TODO remove bottle from active bottle list
