@@ -39,6 +39,7 @@ Deposits are used to reward individuals with tokens. A small portion of the sale
 
 In both of the above cases the amount paid is converted to tokens and stored with the bottle information. Once it's recycled the tokens are dispersed to the rewarded actors.
 
+## Incentive Design
 #### Bottle Lifecycle
 The transfer of tokens, first into the bottle deposit and then rewarded to the involved actors, can be traced through the bottle's lifecycle. 
 
@@ -54,3 +55,28 @@ The figures in the above graph were generated using the following prices:
   
 For the purposes of calculating rewared percentages we assumed the upper bounds on all of the price ranges.
 
+#### Non-Tokenized Cash Flows
+
+Using the above referenced prices and the assumption that 1 ton of plastic equates to 40,000 plastic water bottles, the below table shows an estimation of water bottle life cycle related revenue streams for each of the actors in our model in the _current marketplace_:
+
+|        Actor       	|             Cost            	|           Revenue          	|    Profit   	|
+|:------------------:	|:---------------------------:	|:--------------------------:	|:-----------:	|
+|      Producer      	| -$1,600.00 = ($0.04*40,000) 	| $3,200.00 = ($0.08*40,000) 	|  $1,600.00  	|
+|       Seller       	|          -$3,200.00         	|   $15,000.00 = 9.00*1,667  	|  $11,800.00 	|
+|      Consumer      	|         -$15,000.00         	|          _Unknown_         	| -$15,000.00 	|
+|     Transporter    	|           -$250.00          	|          _Unknown_         	|   -$250.00  	|
+| Recycling Facility 	|           -$147.00          	|           $134.00          	|   -$13.00   	|
+
+#### Tokenized Cash Flows
+
+Using the above referenced prices and the assumption that 1 ton of plastic equates to 40,000 plastic water bottles, the below table shows an estimation of water bottle life cycle related revenue streams for each of the actors in our model in a tokenized, _reward driven market that exists on the blockchain_:
+
+|        Actor       	|             Cost            	|           Revenue          	| Reward    	|    Profit   	|
+|:------------------:	|:---------------------------:	|:--------------------------:	|-----------	|:-----------:	|
+|      Producer      	| -$1,600.00 = ($0.04*40,000) 	| $3,200.00 = ($0.08*40,000) 	|     -     	|  $1,600.00  	|
+|       Seller       	|          -$3,200.00         	|  $10,950.00 = 15,000*0.73  	|     -     	|  $7,750.00  	|
+|      Consumer      	|         -$15,000.00         	|          _Unknown_         	|  $807.14  	| -$14,192.86 	|
+|      Recycler      	|          _Unknown_           	|          _Unknown_         	| $2,017.86 	|  $2,017.86  	|
+|  Vending Location  	|          _Unknown_          	|              -             	|  $807.14  	|   $807.14   	|
+|     Transporter    	|           -$250.00          	|          _Unknown_         	|  $403.57  	|   $153.57   	|
+| Recycling Facility 	|           -$147.00          	|           $134.00          	| $1,210.72 	|  $1,063.72  	|
