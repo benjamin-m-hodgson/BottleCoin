@@ -43,7 +43,7 @@ In both of the above cases the amount paid is converted to tokens and stored wit
 #### Bottle Lifecycle
 The transfer of tokens, first into the bottle deposit and then rewarded to the involved actors, can be traced through the bottle's lifecycle. 
 
-![Bottle Lifecycle](https://lh3.googleusercontent.com/sDNTBMgEQ9IGBHjqmLs8gtvHWCPiMfcCiVm6aE3XdJfGTSLTFC-7VCXcuPUPEsUqne2mTqojD59O)
+![Bottle Lifecycle](https://github.com/bmh43/BottleCoin/blob/master/Bottle%20Lifecycle%20Diagram.png?raw=true)
 
 The figures in the above graph were generated using the following prices:
   * [To produce one bottle:](https://www.economist.com/economic-and-financial-indicators/2014/11/15/the-price-of-making-a-plastic-bottle) $0.02-$0.04
